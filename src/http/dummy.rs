@@ -14,9 +14,13 @@ async fn manual_hello() -> impl Responder {
     HttpResponse::Ok().body("Hey there!")
 }
 
-pub fn get_scope() ->actix_web::Scope {
+fn get_scope() ->actix_web::Scope {
     web::scope("dummy")
         .service(hello)
         .service(echo)
         .route("/hey", web::get().to(manual_hello))
+}
+
+pub fn dummy_config(config: &mut web::ServiceConfig){
+    config.service(get_scope());
 }

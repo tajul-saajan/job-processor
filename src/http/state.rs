@@ -19,6 +19,11 @@ async fn get_state(data: web::Data<AppState>) -> impl Responder {
     HttpResponse::Ok().body(d)
 }
 
-pub fn get_scope() -> actix_web::Scope {
+fn get_scope() -> actix_web::Scope {
     web::scope("state").service(get_state)
+}
+
+pub fn state_config(config: &mut web::ServiceConfig) {
+    let scope = get_scope();
+    config.service(scope);
 }

@@ -1,9 +1,6 @@
 use actix_web::{App, HttpResponse, HttpServer, Responder, guard, web};
 mod http;
-use http::dummy::get_scope as get_dummy_scope;
-use http::state::get_scope as get_state_scope;
-
-use crate::http::state::AppState;
+use crate::http::{dummy::dummy_config, state::{AppState, state_config}};
 
 fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(web::resource("/test").route(web::route().to(test)));
@@ -20,8 +17,8 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(my_state)
             .configure(config)
-            .service(get_state_scope())
-            .service(get_dummy_scope())
+            .configure(state_config)
+            .configure(dummy_config)
             .service(
                 web::scope("/guard")
                     .guard(guard::Host("www.tajul.com"))
