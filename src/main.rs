@@ -1,6 +1,6 @@
 use actix_web::{App, HttpResponse, HttpServer, Responder, guard, web};
-mod http;
-use crate::http::{dummy::dummy_config, state::{AppState, state_config}};
+mod api;
+use crate::api::{dummy::dummy_config, state::{AppState, state_config}};
 
 fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(web::resource("/test").route(web::route().to(test)));
