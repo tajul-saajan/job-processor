@@ -48,6 +48,7 @@ async fn bulk_create_jobs(
     let mut file_data = Vec::new();
 
     // Read file from multipart stream
+    // Size limit is enforced by middleware in main.rs
     while let Some(item) = payload.next().await {
         let mut field = match item {
             Ok(field) => field,
