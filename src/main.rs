@@ -1,6 +1,11 @@
 use actix_web::{App, HttpResponse, HttpServer, Responder, guard, web};
 mod api;
-use crate::api::{dummy::dummy_config, state::{AppState, state_config}};
+use crate::api::{
+    dummy::dummy_config,
+    job::handlers::job_config,
+    state::{AppState, state_config},
+    validation,
+};
 
 fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(web::resource("/test").route(web::route().to(test)));
@@ -16,9 +21,11 @@ async fn main() -> std::io::Result<()> {
         let my_state = web::Data::new(AppState::new("my_app"));
         App::new()
             .app_data(my_state)
+            .app_data(validation::json_config()) // Global validation config
             .configure(config)
             .configure(state_config)
             .configure(dummy_config)
+            .configure(job_config)
             .service(
                 web::scope("/guard")
                     .guard(guard::Host("www.tajul.com"))
