@@ -1,5 +1,7 @@
 use actix_web::{App, HttpResponse, HttpServer, Responder, guard, web};
 use actix_multipart::form::MultipartFormConfig;
+use tracing::info;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod api;
 use crate::api::{
     dummy::dummy_config,
@@ -20,6 +22,18 @@ async fn test() -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    // Initialize tracing subscriber for logging
+    // Set RUST_LOG environment variable to control log level (e.g., RUST_LOG=debug)
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+    info!("Starting job-processor application");
+
     // Load configuration from environment
     let config::Config {
         database_url,
@@ -27,15 +41,22 @@ async fn main() -> std::io::Result<()> {
     } = config::Config::from_env()
         .expect("Failed to load configuration");
 
+    info!("Configuration loaded successfully");
+    info!("Max payload size: {} bytes", max_payload_size);
+
     // Get database connection pool
     let pool = db::connection::get_connection(&database_url).await
         .expect("Failed to connect to database");
+
+    info!("Database connection pool established");
 
     // Run migrations on startup
     db::migrations::run_migrations(&pool).await
         .expect("Failed to run database migrations");
 
-    HttpServer::new(move || {
+    info!("Database migrations completed successfully");
+
+    let server = HttpServer::new(move || {
         let my_state = web::Data::new(AppState::new("my_app"));
 
         // Configure payload size limits globally
@@ -66,8 +87,15 @@ async fn main() -> std::io::Result<()> {
                     .route("", web::to(|| async { HttpResponse::Ok().body("saajan") })),
             )
             .route("/guard", web::to(HttpResponse::Ok))
-    })
-    .bind(("127.0.0.1", 8080))?
-    .run()
-    .await
+    });
+
+    info!("Server starting on http://127.0.0.1:8080");
+
+    server
+        .bind(("127.0.0.1", 8080))?
+        .run()
+        .await?;
+
+    info!("Server stopped");
+    Ok(())
 }

@@ -1,4 +1,5 @@
 use sqlx::{Pool, Postgres};
+use tracing::debug;
 use crate::api::job::Job;
 use crate::db::models::JobRow;
 
@@ -11,6 +12,8 @@ impl JobRepository {
         pool: &Pool<Postgres>,
         job: &Job,
     ) -> Result<JobRow, sqlx::Error> {
+        debug!("Creating job: name={}, status={:?}", job.name, job.status);
+
         let status_str = format!("{:?}", job.status).to_lowercase();
 
         let row = sqlx::query_as!(
@@ -26,6 +29,7 @@ impl JobRepository {
         .fetch_one(pool)
         .await?;
 
+        debug!("Job created with id={}", row.id);
         Ok(row)
     }
 
@@ -36,8 +40,11 @@ impl JobRepository {
         jobs: &[Job],
     ) -> Result<u64, sqlx::Error> {
         if jobs.is_empty() {
+            debug!("Bulk create called with empty job list");
             return Ok(0);
         }
+
+        debug!("Starting bulk insert of {} jobs", jobs.len());
 
         // Build dynamic SQL for bulk insert
         let mut query = String::from("INSERT INTO jobs (name, status) VALUES ");
@@ -62,6 +69,9 @@ impl JobRepository {
         }
 
         let result = query_builder.execute(pool).await?;
-        Ok(result.rows_affected())
+        let rows_affected = result.rows_affected();
+        debug!("Bulk insert completed: {} rows inserted", rows_affected);
+
+        Ok(rows_affected)
     }
 }

@@ -6,6 +6,7 @@ use actix_web_validator::Json;
 use actix_multipart::Multipart;
 use futures_util::StreamExt;
 use sqlx::{Pool, Postgres};
+use tracing::{error, info, warn};
 use validator::Validate;
 use crate::db::job_repository::JobRepository;
 use crate::api::validation::ErrorResponse;
@@ -20,6 +21,7 @@ async fn create_job(
     // Save job to database
     match JobRepository::create(&pool, &job).await {
         Ok(job_row) => {
+            info!("Job created successfully: id={}, name={}", job_row.id, job_row.name);
             let response = JobResponse {
                 message: "Job created successfully".to_string(),
                 job: job_row,
@@ -27,8 +29,7 @@ async fn create_job(
             HttpResponse::Created().json(response)
         }
         Err(err) => {
-            // Log the full error for debugging
-            eprintln!("Database error: {:?}", err);
+            error!("Database error while creating job: {:?}", err);
 
             // Return consistent error response (safe for production)
             let error_response = ErrorResponse {
@@ -53,7 +54,7 @@ async fn bulk_create_jobs(
         let mut field = match item {
             Ok(field) => field,
             Err(err) => {
-                eprintln!("Multipart error: {:?}", err);
+                error!("Multipart error while reading file: {:?}", err);
                 let error_response = ErrorResponse {
                     error: "Failed to read uploaded file".to_string(),
                     fields: serde_json::json!({"message": "Invalid file upload"}),
@@ -67,7 +68,7 @@ async fn bulk_create_jobs(
             let data = match chunk {
                 Ok(data) => data,
                 Err(err) => {
-                    eprintln!("Chunk read error: {:?}", err);
+                    error!("Chunk read error: {:?}", err);
                     let error_response = ErrorResponse {
                         error: "Failed to read file content".to_string(),
                         fields: serde_json::json!({"message": "Error reading file"}),
@@ -80,10 +81,13 @@ async fn bulk_create_jobs(
     }
 
     // Parse JSON array from file
-    let jobs: Vec<Job> = match serde_json::from_slice(&file_data) {
-        Ok(jobs) => jobs,
+    let jobs: Vec<Job> = match serde_json::from_slice::<Vec<Job>>(&file_data) {
+        Ok(jobs) => {
+            info!("Successfully parsed {} jobs from uploaded file", jobs.len());
+            jobs
+        }
         Err(err) => {
-            eprintln!("JSON parse error: {:?}", err);
+            error!("JSON parse error: {:?}", err);
             let error_response = ErrorResponse {
                 error: "Failed to parse JSON file".to_string(),
                 fields: serde_json::json!({"message": format!("Invalid JSON: {}", err)}),
@@ -123,9 +127,12 @@ async fn bulk_create_jobs(
     // Bulk insert all valid jobs in a single transaction
     let created_count = if !valid_jobs.is_empty() {
         match JobRepository::bulk_create(&pool, &valid_jobs).await {
-            Ok(count) => count as usize,
+            Ok(count) => {
+                info!("Successfully bulk created {} jobs", count);
+                count as usize
+            }
             Err(err) => {
-                eprintln!("Bulk insert error: {:?}", err);
+                error!("Bulk insert error: {:?}", err);
                 let error_response = ErrorResponse {
                     error: "Failed to insert jobs into database".to_string(),
                     fields: serde_json::json!({"message": "Database error occurred"}),
@@ -134,14 +141,23 @@ async fn bulk_create_jobs(
             }
         }
     } else {
+        warn!("No valid jobs to insert");
         0
     };
+
+    let error_count = errors.len();
+
+    if error_count == 0 {
+        info!("Bulk job creation completed successfully: {} jobs created", created_count);
+    } else {
+        warn!("Bulk job creation completed with {} validation errors", error_count);
+    }
 
     let response = BulkJobResponse {
         message: format!(
             "Bulk job creation completed. {} created, {} failed",
             created_count,
-            errors.len()
+            error_count
         ),
         created: created_count,
         errors,
