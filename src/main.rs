@@ -1,5 +1,6 @@
 use actix_web::{App, HttpResponse, HttpServer, Responder, guard, web};
 use actix_multipart::form::MultipartFormConfig;
+use clap::{Parser, Subcommand};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod api;
@@ -11,6 +12,34 @@ use crate::api::{
 };
 mod config;
 mod db;
+
+/// Job Processor - A high-performance REST API for managing jobs
+#[derive(Parser)]
+#[command(name = "job-processor")]
+#[command(about = "Job processor with database migration management", long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Run database migrations
+    Migrate,
+
+    /// Rollback database migrations
+    Rollback {
+        /// Number of migrations to rollback (default: 1)
+        #[arg(short, long, default_value_t = 1)]
+        steps: i64,
+    },
+
+    /// Rollback all migrations to fresh state
+    Fresh,
+
+    /// Refresh database (rollback all + re-migrate)
+    Refresh,
+}
 
 fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(web::resource("/test").route(web::route().to(test)));
@@ -32,7 +61,8 @@ async fn main() -> std::io::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    info!("Starting job-processor application");
+    // Parse CLI arguments
+    let cli = Cli::parse();
 
     // Load configuration from environment
     let config::Config {
@@ -42,17 +72,52 @@ async fn main() -> std::io::Result<()> {
     } = config::Config::from_env()
         .expect("Failed to load configuration");
 
-    info!("Configuration loaded successfully");
-    info!("Max payload size: {} bytes", max_payload_size);
-    info!("Max database connections: {}", max_db_connections);
-
     // Get database connection pool
     let pool = db::connection::get_connection(&database_url, max_db_connections).await
         .expect("Failed to connect to database");
 
+    // Handle migration commands if provided
+    if let Some(command) = cli.command {
+        match command {
+            Commands::Migrate => {
+                info!("Running migrations command...");
+                db::migrations::run_migrations(&pool).await
+                    .expect("Failed to run migrations");
+                info!("Migrations completed. Exiting.");
+                return Ok(());
+            }
+            Commands::Rollback { steps } => {
+                info!("Running rollback command with {} step(s)...", steps);
+                db::migrations::rollback_migrations(&pool, steps).await
+                    .expect("Failed to rollback migrations");
+                info!("Rollback completed. Exiting.");
+                return Ok(());
+            }
+            Commands::Fresh => {
+                info!("Running fresh command (rollback all)...");
+                db::migrations::rollback_all_migrations(&pool).await
+                    .expect("Failed to rollback all migrations");
+                info!("Fresh completed. Exiting.");
+                return Ok(());
+            }
+            Commands::Refresh => {
+                info!("Running refresh command (rollback all + re-migrate)...");
+                db::migrations::refresh_database(&pool).await
+                    .expect("Failed to refresh database");
+                info!("Refresh completed. Exiting.");
+                return Ok(());
+            }
+        }
+    }
+
+    // No command provided - start the server
+    info!("Starting job-processor application");
+    info!("Configuration loaded successfully");
+    info!("Max payload size: {} bytes", max_payload_size);
+    info!("Max database connections: {}", max_db_connections);
     info!("Database connection pool established");
 
-    // Run migrations on startup
+    // Run migrations on startup (auto-migrate when starting server)
     db::migrations::run_migrations(&pool).await
         .expect("Failed to run database migrations");
 
