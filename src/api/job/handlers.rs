@@ -26,10 +26,19 @@ struct Job {
     status: JobStatus,
 }
 
+#[derive(Serialize)]
+struct JobResponse {
+    message: String,
+    job: Job,
+}
+
 #[post("")]
 async fn process_job(job: Json<Job>) -> impl Responder {
-    let str = format!("hi, jobname: {:?}, status: {:?}", job.name, job.status);
-    HttpResponse::Ok().body(str)
+    let response = JobResponse {
+        message: "Job processed successfully".to_string(),
+        job: job.into_inner(),
+    };
+    HttpResponse::Ok().json(response)
 }
 
 pub fn job_config(config: &mut ServiceConfig) {
