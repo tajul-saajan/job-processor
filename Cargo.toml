@@ -14,3 +14,5 @@ actix-web-validator = "6.0"
 sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "migrate", "chrono"] }
 dotenv = "0.15.0"
 chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
