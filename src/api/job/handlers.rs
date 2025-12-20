@@ -5,50 +5,12 @@ use actix_web::{
 use actix_web_validator::Json;
 use actix_multipart::Multipart;
 use futures_util::StreamExt;
-use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use validator::Validate;
-use crate::db::{job_repository::JobRepository, models::JobRow};
+use crate::db::job_repository::JobRepository;
 use crate::api::validation::ErrorResponse;
-
-#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
-#[serde(rename_all = "snake_case")]
-pub enum JobStatus {
-    New,
-    Processing,
-    Success,
-    Failed,
-}
-
-#[derive(Deserialize, Serialize, Debug, Validate)]
-pub struct Job {
-    #[validate(length(
-        min = 3,
-        max = 10,
-        message = "Name must be between 3 and 10 characters"
-    ))]
-    pub name: String,
-    pub status: JobStatus,
-}
-
-#[derive(Serialize)]
-struct JobResponse {
-    message: String,
-    job: JobRow,
-}
-
-#[derive(Serialize)]
-struct JobError {
-    name: String,
-    errors: Vec<String>,
-}
-
-#[derive(Serialize)]
-struct BulkJobResponse {
-    message: String,
-    created: usize,
-    errors: Vec<JobError>,
-}
+use super::models::Job;
+use super::dto::{JobResponse, JobError, BulkJobResponse};
 
 #[post("")]
 async fn create_job(

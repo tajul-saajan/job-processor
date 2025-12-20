@@ -1,5 +1,5 @@
 use sqlx::{Pool, Postgres};
-use crate::api::job::handlers::Job;
+use crate::api::job::Job;
 use crate::db::models::JobRow;
 
 /// Repository for Job database operations
