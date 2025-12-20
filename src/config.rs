@@ -10,6 +10,10 @@ pub struct Config {
     /// Maximum payload size for all requests (in bytes)
     /// Default: 10MB (10 * 1024 * 1024)
     pub max_payload_size: usize,
+
+    /// Maximum number of database connections in the pool
+    /// Default: 5
+    pub max_db_connections: u32,
 }
 
 impl Config {
@@ -20,6 +24,7 @@ impl Config {
     ///
     /// Optional environment variables:
     /// - MAX_PAYLOAD_SIZE: Maximum request payload size in bytes (default: 10485760 = 10MB)
+    /// - MAX_DB_CONNECTIONS: Maximum database connections in pool (default: 5)
     pub fn from_env() -> Result<Self, String> {
         // Load .env file if it exists
         dotenv::dotenv().ok();
@@ -33,9 +38,16 @@ impl Config {
             .and_then(|s| s.parse().ok())
             .unwrap_or(10 * 1024 * 1024); // Default: 10MB
 
+        // Parse MAX_DB_CONNECTIONS with default fallback
+        let max_db_connections = env::var("MAX_DB_CONNECTIONS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(5); // Default: 5 connections
+
         Ok(Config {
             database_url,
             max_payload_size,
+            max_db_connections,
         })
     }
 }

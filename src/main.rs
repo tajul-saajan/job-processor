@@ -38,14 +38,16 @@ async fn main() -> std::io::Result<()> {
     let config::Config {
         database_url,
         max_payload_size,
+        max_db_connections,
     } = config::Config::from_env()
         .expect("Failed to load configuration");
 
     info!("Configuration loaded successfully");
     info!("Max payload size: {} bytes", max_payload_size);
+    info!("Max database connections: {}", max_db_connections);
 
     // Get database connection pool
-    let pool = db::connection::get_connection(&database_url).await
+    let pool = db::connection::get_connection(&database_url, max_db_connections).await
         .expect("Failed to connect to database");
 
     info!("Database connection pool established");
