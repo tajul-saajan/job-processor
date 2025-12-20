@@ -18,17 +18,18 @@ async fn test() -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Get database connection
-    let conn = db::connection::get_connection().await
+    // Get database connection pool
+    let pool = db::connection::get_connection().await
         .expect("Failed to connect to database");
 
     // Run migrations on startup
-    db::migrations::run_migrations(&conn).await
+    db::migrations::run_migrations(&pool).await
         .expect("Failed to run database migrations");
 
-    HttpServer::new(|| {
+    HttpServer::new(move || {
         let my_state = web::Data::new(AppState::new("my_app"));
         App::new()
+            .app_data(web::Data::new(pool.clone())) // Share DB pool across workers
             .app_data(my_state)
             .app_data(validation::json_config()) // Global validation config
             .configure(config)
