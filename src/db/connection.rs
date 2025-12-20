@@ -1,16 +1,16 @@
-use std::env;
-
-use dotenv::dotenv;
 use sqlx::{Error, Pool, Postgres, postgres::PgPoolOptions};
 
-pub async fn get_connection() -> Result<Pool<Postgres>, Error> {
-    dotenv().ok();
-
-    let database_url = env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set in .env file");
-
+/// Create a PostgreSQL connection pool
+///
+/// # Parameters
+/// - `database_url`: PostgreSQL connection string
+///   Format: postgresql://USERNAME:PASSWORD@HOST:PORT/DATABASE_NAME
+///
+/// # Returns
+/// A connection pool with max 5 connections
+pub async fn get_connection(database_url: &str) -> Result<Pool<Postgres>, Error> {
     PgPoolOptions::new()
         .max_connections(5)
-        .connect(&database_url)
+        .connect(database_url)
         .await
 }

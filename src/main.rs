@@ -7,11 +7,8 @@ use crate::api::{
     state::{AppState, state_config},
     validation,
 };
+mod config;
 mod db;
-
-/// Maximum payload size for all requests (10MB)
-/// Protects against memory exhaustion attacks
-const MAX_PAYLOAD_SIZE: usize = 10 * 1024 * 1024;
 
 fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(web::resource("/test").route(web::route().to(test)));
@@ -23,8 +20,15 @@ async fn test() -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    // Load configuration from environment
+    let config::Config {
+        database_url,
+        max_payload_size,
+    } = config::Config::from_env()
+        .expect("Failed to load configuration");
+
     // Get database connection pool
-    let pool = db::connection::get_connection().await
+    let pool = db::connection::get_connection(&database_url).await
         .expect("Failed to connect to database");
 
     // Run migrations on startup
@@ -36,10 +40,10 @@ async fn main() -> std::io::Result<()> {
 
         // Configure payload size limits globally
         let payload_config = web::PayloadConfig::default()
-            .limit(MAX_PAYLOAD_SIZE);
+            .limit(max_payload_size);
 
         let multipart_config = MultipartFormConfig::default()
-            .total_limit(MAX_PAYLOAD_SIZE);
+            .total_limit(max_payload_size);
 
         App::new()
             .app_data(web::Data::new(pool.clone())) // Share DB pool across workers
