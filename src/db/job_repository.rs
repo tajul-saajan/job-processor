@@ -28,4 +28,40 @@ impl JobRepository {
 
         Ok(row)
     }
+
+    /// Bulk insert multiple jobs in a single transaction
+    /// Returns the number of rows inserted
+    pub async fn bulk_create(
+        pool: &Pool<Postgres>,
+        jobs: &[Job],
+    ) -> Result<u64, sqlx::Error> {
+        if jobs.is_empty() {
+            return Ok(0);
+        }
+
+        // Build dynamic SQL for bulk insert
+        let mut query = String::from("INSERT INTO jobs (name, status) VALUES ");
+        let mut values = Vec::new();
+
+        for (i, job) in jobs.iter().enumerate() {
+            let status_str = format!("{:?}", job.status).to_lowercase();
+
+            if i > 0 {
+                query.push_str(", ");
+            }
+            query.push_str(&format!("(${}, ${})", i * 2 + 1, i * 2 + 2));
+
+            values.push(job.name.clone());
+            values.push(status_str);
+        }
+
+        // Execute bulk insert
+        let mut query_builder = sqlx::query(&query);
+        for value in values {
+            query_builder = query_builder.bind(value);
+        }
+
+        let result = query_builder.execute(pool).await?;
+        Ok(result.rows_affected())
+    }
 }
