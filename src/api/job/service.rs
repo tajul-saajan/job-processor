@@ -1,6 +1,8 @@
 use actix_web::{HttpResponse, ResponseError};
 use sqlx::{Pool, Postgres};
 use std::fmt;
+use tokio::time::{sleep, Duration};
+use rand::Rng;
 use tracing::{error, info, warn};
 use validator::Validate;
 
@@ -173,5 +175,52 @@ impl JobService {
             created: created_count,
             errors,
         })
+    }
+
+    /// Run worker that continuously processes jobs
+    ///
+    /// # Business Logic
+    /// - Continuously fetches available jobs using acquire_next_job
+    /// - Simulates processing with random delay (1-5 seconds)
+    /// - Randomly determines success/failure (75-80% success rate)
+    /// - Updates job status accordingly
+    /// - Sleeps when no jobs are available
+    ///
+    /// # Arguments
+    /// - `worker_id` - Identifier for this worker instance
+    pub async fn run_worker(&self, worker_id: u32) {
+        info!("Worker {} started", worker_id);
+
+        loop {
+            match JobRepository::acquire_next_job(&self.pool).await {
+                Ok(Some(job)) => {
+                    info!("Worker {} acquired job: id={}, name={}", worker_id, job.id, job.name);
+
+                    // Random delay 1-5 seconds (simulate processing time)
+                    let delay = rand::thread_rng().gen_range(1..=5);
+                    info!("Worker {} processing job {} for {} seconds", worker_id, job.id, delay);
+                    sleep(Duration::from_secs(delay)).await;
+
+                    // Random success/failure (75-80% success rate)
+                    let success_rate = rand::thread_rng().gen_range(0..100);
+                    let status = if success_rate < 77 { "success" } else { "failed" };
+
+                    // Update job status
+                    match JobRepository::update_job_status(&self.pool, job.id, status).await {
+                        Ok(_) => info!("Worker {} completed job {}: status={}", worker_id, job.id, status),
+                        Err(e) => error!("Worker {} failed to update job {}: {:?}", worker_id, job.id, e),
+                    }
+                }
+                Ok(None) => {
+                    // No jobs available, sleep for a bit before checking again
+                    info!("Worker {} found no jobs available, sleeping...", worker_id);
+                    sleep(Duration::from_secs(5)).await;
+                }
+                Err(e) => {
+                    error!("Worker {} encountered database error: {:?}", worker_id, e);
+                    sleep(Duration::from_secs(1)).await;
+                }
+            }
+        }
     }
 }
