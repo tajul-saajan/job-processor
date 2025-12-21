@@ -73,6 +73,8 @@ async fn main() -> std::io::Result<()> {
         database_url,
         max_payload_size,
         max_db_connections,
+        max_concurrent_jobs,
+        num_workers,
     } = config::Config::from_env()
         .expect("Failed to load configuration");
 
@@ -116,9 +118,11 @@ async fn main() -> std::io::Result<()> {
 
     // No command provided - start the server
     info!("Starting job-processor application");
-    info!("Configuration loaded successfully");
-    info!("Max payload size: {} bytes", max_payload_size);
-    info!("Max database connections: {}", max_db_connections);
+    info!("Configuration loaded successfully:");
+    info!("  - Max payload size: {} bytes", max_payload_size);
+    info!("  - Max database connections: {}", max_db_connections);
+    info!("  - Max concurrent jobs: {}", max_concurrent_jobs);
+    info!("  - Number of workers: {}", num_workers);
     info!("Database connection pool established");
 
     // Run migrations on startup (auto-migrate when starting server)
@@ -128,13 +132,6 @@ async fn main() -> std::io::Result<()> {
     info!("Database migrations completed successfully");
 
     // Spawn background workers with semaphore-based bounded concurrency
-    let max_concurrent_jobs = 5; // Maximum number of jobs processing simultaneously
-    let num_workers = 3; // Number of worker loops acquiring jobs
-
-    info!("Configuring worker pool:");
-    info!("  - Max concurrent jobs: {}", max_concurrent_jobs);
-    info!("  - Number of workers: {}", num_workers);
-
     let semaphore = Arc::new(Semaphore::new(max_concurrent_jobs));
 
     for worker_id in 1..=num_workers {

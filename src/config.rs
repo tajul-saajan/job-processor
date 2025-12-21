@@ -12,8 +12,16 @@ pub struct Config {
     pub max_payload_size: usize,
 
     /// Maximum number of database connections in the pool
-    /// Default: 5
+    /// Default: 15
     pub max_db_connections: u32,
+
+    /// Maximum number of jobs processing concurrently (semaphore permits)
+    /// Default: 5
+    pub max_concurrent_jobs: usize,
+
+    /// Number of worker loops acquiring jobs from the queue
+    /// Default: 3
+    pub num_workers: u32,
 }
 
 impl Config {
@@ -24,7 +32,11 @@ impl Config {
     ///
     /// Optional environment variables:
     /// - MAX_PAYLOAD_SIZE: Maximum request payload size in bytes (default: 10485760 = 10MB)
-    /// - MAX_DB_CONNECTIONS: Maximum database connections in pool (default: 5)
+    /// - MAX_DB_CONNECTIONS: Maximum database connections in pool (default: 15)
+    /// - MAX_CONCURRENT_JOBS: Maximum concurrent jobs processing (semaphore permits) (default: 5)
+    /// - NUM_WORKERS: Number of worker loops acquiring jobs (default: 3)
+    ///
+    /// Note: Ensure MAX_DB_CONNECTIONS >= NUM_WORKERS + MAX_CONCURRENT_JOBS + API_BUFFER
     pub fn from_env() -> Result<Self, String> {
         // Load .env file if it exists
         dotenv::dotenv().ok();
@@ -42,12 +54,26 @@ impl Config {
         let max_db_connections = env::var("MAX_DB_CONNECTIONS")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(5); // Default: 5 connections
+            .unwrap_or(15); // Default: 15 connections
+
+        // Parse MAX_CONCURRENT_JOBS with default fallback
+        let max_concurrent_jobs = env::var("MAX_CONCURRENT_JOBS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(5); // Default: 5 concurrent jobs
+
+        // Parse NUM_WORKERS with default fallback
+        let num_workers = env::var("NUM_WORKERS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(3); // Default: 3 workers
 
         Ok(Config {
             database_url,
             max_payload_size,
             max_db_connections,
+            max_concurrent_jobs,
+            num_workers,
         })
     }
 }
