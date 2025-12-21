@@ -1,54 +1,35 @@
 use actix_web::{
-    HttpResponse, Responder, post,
+    HttpResponse, Responder, ResponseError, post,
     web::{Data, ServiceConfig, scope},
 };
 use actix_web_validator::Json;
 use actix_multipart::Multipart;
 use futures_util::StreamExt;
-use sqlx::{Pool, Postgres};
-use tracing::{error, info, warn};
-use validator::Validate;
-use crate::db::job_repository::JobRepository;
+use tracing::error;
 use crate::api::validation::ErrorResponse;
 use super::models::Job;
-use super::dto::{JobResponse, JobError, BulkJobResponse};
+use super::service::JobService;
 
 #[post("")]
 async fn create_job(
-    pool: Data<Pool<Postgres>>,
+    service: Data<JobService>,
     job: Json<Job>,
 ) -> impl Responder {
-    // Save job to database
-    match JobRepository::create(&pool, &job).await {
-        Ok(job_row) => {
-            info!("Job created successfully: id={}, name={}", job_row.id, job_row.name);
-            let response = JobResponse {
-                message: "Job created successfully".to_string(),
-                job: job_row,
-            };
-            HttpResponse::Created().json(response)
-        }
-        Err(err) => {
-            error!("Database error while creating job: {:?}", err);
-
-            // Return consistent error response (safe for production)
-            let error_response = ErrorResponse {
-                error: "Failed to create job".to_string(),
-                fields: serde_json::json!({"message": "Database error occurred"}),
-            };
-            HttpResponse::InternalServerError().json(error_response)
-        }
+    // Call service to create job (business logic)
+    match service.create_job(&job).await {
+        Ok(response) => HttpResponse::Created().json(response),
+        Err(e) => e.error_response(),
     }
 }
 
 #[post("/bulk")]
 async fn bulk_create_jobs(
-    pool: Data<Pool<Postgres>>,
+    service: Data<JobService>,
     mut payload: Multipart,
 ) -> impl Responder {
     let mut file_data = Vec::new();
 
-    // Read file from multipart stream
+    // Read file from multipart stream (infrastructure concern)
     // Size limit is enforced by middleware in main.rs
     while let Some(item) = payload.next().await {
         let mut field = match item {
@@ -82,10 +63,7 @@ async fn bulk_create_jobs(
 
     // Parse JSON array from file
     let jobs: Vec<Job> = match serde_json::from_slice::<Vec<Job>>(&file_data) {
-        Ok(jobs) => {
-            info!("Successfully parsed {} jobs from uploaded file", jobs.len());
-            jobs
-        }
+        Ok(jobs) => jobs,
         Err(err) => {
             error!("JSON parse error: {:?}", err);
             let error_response = ErrorResponse {
@@ -96,74 +74,11 @@ async fn bulk_create_jobs(
         }
     };
 
-    let mut valid_jobs = Vec::new();
-    let mut errors = Vec::new();
-
-    // Validate each job and separate valid from invalid
-    for job in jobs {
-        if let Err(validation_errors) = job.validate() {
-            let error_messages: Vec<String> = validation_errors
-                .field_errors()
-                .iter()
-                .flat_map(|(_, errors)| {
-                    errors.iter().map(|e| {
-                        e.message
-                            .as_ref()
-                            .map(|m| m.to_string())
-                            .unwrap_or_else(|| "Validation error".to_string())
-                    })
-                })
-                .collect();
-
-            errors.push(JobError {
-                name: job.name.clone(),
-                errors: error_messages,
-            });
-        } else {
-            valid_jobs.push(job);
-        }
+    // Call service to handle business logic (validation + bulk insert)
+    match service.bulk_create_jobs(jobs).await {
+        Ok(response) => HttpResponse::Ok().json(response),
+        Err(e) => e.error_response(),
     }
-
-    // Bulk insert all valid jobs in a single transaction
-    let created_count = if !valid_jobs.is_empty() {
-        match JobRepository::bulk_create(&pool, &valid_jobs).await {
-            Ok(count) => {
-                info!("Successfully bulk created {} jobs", count);
-                count as usize
-            }
-            Err(err) => {
-                error!("Bulk insert error: {:?}", err);
-                let error_response = ErrorResponse {
-                    error: "Failed to insert jobs into database".to_string(),
-                    fields: serde_json::json!({"message": "Database error occurred"}),
-                };
-                return HttpResponse::InternalServerError().json(error_response);
-            }
-        }
-    } else {
-        warn!("No valid jobs to insert");
-        0
-    };
-
-    let error_count = errors.len();
-
-    if error_count == 0 {
-        info!("Bulk job creation completed successfully: {} jobs created", created_count);
-    } else {
-        warn!("Bulk job creation completed with {} validation errors", error_count);
-    }
-
-    let response = BulkJobResponse {
-        message: format!(
-            "Bulk job creation completed. {} created, {} failed",
-            created_count,
-            error_count
-        ),
-        created: created_count,
-        errors,
-    };
-
-    HttpResponse::Ok().json(response)
 }
 
 pub fn job_config(config: &mut ServiceConfig) {

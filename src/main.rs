@@ -6,7 +6,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod api;
 use crate::api::{
     dummy::dummy_config,
-    job::handlers::job_config,
+    job::{handlers::job_config, JobService},
     state::{AppState, state_config},
     validation,
 };
@@ -126,6 +126,9 @@ async fn main() -> std::io::Result<()> {
     let server = HttpServer::new(move || {
         let my_state = web::Data::new(AppState::new("my_app"));
 
+        // Create JobService with database pool
+        let job_service = web::Data::new(JobService::new(pool.clone()));
+
         // Configure payload size limits globally
         let payload_config = web::PayloadConfig::default()
             .limit(max_payload_size);
@@ -135,6 +138,7 @@ async fn main() -> std::io::Result<()> {
 
         App::new()
             .app_data(web::Data::new(pool.clone())) // Share DB pool across workers
+            .app_data(job_service) // Inject JobService
             .app_data(my_state)
             .app_data(payload_config) // Global payload size limit
             .app_data(multipart_config) // Global multipart/file upload size limit
