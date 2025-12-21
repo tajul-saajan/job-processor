@@ -167,4 +167,43 @@ impl JobRepository {
 
         Ok(Some(updated_job))
     }
+
+    /// Update job status
+    ///
+    /// Updates the status of a job by its ID.
+    /// The updated_at timestamp is automatically updated by the database trigger.
+    ///
+    /// # Arguments
+    /// - `pool` - Database connection pool
+    /// - `job_id` - ID of the job to update
+    /// - `status` - New status value ("processing", "success", "failed")
+    ///
+    /// # Returns
+    /// - `Ok(JobRow)` - Updated job
+    /// - `Err(sqlx::Error)` - Database error or job not found
+    pub async fn update_job_status(
+        pool: &Pool<Postgres>,
+        job_id: i32,
+        status: &str,
+    ) -> Result<JobRow, sqlx::Error> {
+        debug!("Updating job {} to status: {}", job_id, status);
+
+        let updated_job = sqlx::query_as!(
+            JobRow,
+            r#"
+            UPDATE jobs
+            SET status = $1
+            WHERE id = $2
+            RETURNING id, name, status, created_at, updated_at
+            "#,
+            status,
+            job_id
+        )
+        .fetch_one(pool)
+        .await?;
+
+        debug!("Job {} status updated to: {}", job_id, status);
+
+        Ok(updated_job)
+    }
 }
