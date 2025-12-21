@@ -1,6 +1,8 @@
 use actix_web::{App, HttpResponse, HttpServer, Responder, guard, web};
 use actix_multipart::form::MultipartFormConfig;
 use clap::{Parser, Subcommand};
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod api;
@@ -12,6 +14,8 @@ use crate::api::{
 };
 mod config;
 mod db;
+mod worker;
+use crate::worker::JobWorker;
 
 /// Job Processor - A high-performance REST API for managing jobs
 #[derive(Parser)]
@@ -122,6 +126,28 @@ async fn main() -> std::io::Result<()> {
         .expect("Failed to run database migrations");
 
     info!("Database migrations completed successfully");
+
+    // Spawn background workers with semaphore-based bounded concurrency
+    let max_concurrent_jobs = 5; // Maximum number of jobs processing simultaneously
+    let num_workers = 3; // Number of worker loops acquiring jobs
+
+    info!("Configuring worker pool:");
+    info!("  - Max concurrent jobs: {}", max_concurrent_jobs);
+    info!("  - Number of workers: {}", num_workers);
+
+    let semaphore = Arc::new(Semaphore::new(max_concurrent_jobs));
+
+    for worker_id in 1..=num_workers {
+        let worker_pool = pool.clone();
+        let worker_semaphore = semaphore.clone();
+
+        tokio::spawn(async move {
+            let job_worker = JobWorker::new(worker_pool);
+            job_worker.run(worker_id, worker_semaphore).await;
+        });
+
+        info!("Spawned worker {}", worker_id);
+    }
 
     let server = HttpServer::new(move || {
         let my_state = web::Data::new(AppState::new("my_app"));
