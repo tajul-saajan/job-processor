@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tracing::info;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer, filter::LevelFilter};
 mod api;
 use crate::api::{
     dummy::dummy_config,
@@ -55,17 +55,7 @@ async fn test() -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Initialize tracing subscriber for logging
-    // Set RUST_LOG environment variable to control log level (e.g., RUST_LOG=debug)
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
-
-    // Parse CLI arguments
+    // Parse CLI arguments first (before logging, so we can see help/version)
     let cli = Cli::parse();
 
     // Load configuration from environment
@@ -75,8 +65,54 @@ async fn main() -> std::io::Result<()> {
         max_db_connections,
         max_concurrent_jobs,
         num_workers,
+        log_dir,
     } = config::Config::from_env()
         .expect("Failed to load configuration");
+
+    // Create logs directory if it doesn't exist
+    std::fs::create_dir_all(&log_dir)
+        .expect("Failed to create logs directory");
+
+    // Initialize file-based logging with daily rotation and level separation
+    // Log files will be created as: logs/info.2024-12-22.log, logs/error.2024-12-22.log, etc.
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "info".into());
+
+    // Create daily rotating file appenders for each log level
+    let info_file = tracing_appender::rolling::daily(&log_dir, "info.log");
+    let warn_file = tracing_appender::rolling::daily(&log_dir, "warn.log");
+    let error_file = tracing_appender::rolling::daily(&log_dir, "error.log");
+    let debug_file = tracing_appender::rolling::daily(&log_dir, "debug.log");
+
+    // Create layers for each log level
+    let info_layer = tracing_subscriber::fmt::layer()
+        .with_writer(info_file)
+        .with_ansi(false)
+        .with_filter(LevelFilter::INFO);
+
+    let warn_layer = tracing_subscriber::fmt::layer()
+        .with_writer(warn_file)
+        .with_ansi(false)
+        .with_filter(LevelFilter::WARN);
+
+    let error_layer = tracing_subscriber::fmt::layer()
+        .with_writer(error_file)
+        .with_ansi(false)
+        .with_filter(LevelFilter::ERROR);
+
+    let debug_layer = tracing_subscriber::fmt::layer()
+        .with_writer(debug_file)
+        .with_ansi(false)
+        .with_filter(LevelFilter::DEBUG);
+
+    // Initialize the subscriber with all layers
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(info_layer)
+        .with(warn_layer)
+        .with(error_layer)
+        .with(debug_layer)
+        .init();
 
     // Get database connection pool
     let pool = db::connection::get_connection(&database_url, max_db_connections).await

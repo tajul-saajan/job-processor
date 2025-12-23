@@ -22,6 +22,10 @@ pub struct Config {
     /// Number of worker loops acquiring jobs from the queue
     /// Default: 3
     pub num_workers: u32,
+
+    /// Directory for log files (daily rotation, separated by level)
+    /// Default: "logs"
+    pub log_dir: String,
 }
 
 impl Config {
@@ -35,6 +39,7 @@ impl Config {
     /// - MAX_DB_CONNECTIONS: Maximum database connections in pool (default: 15)
     /// - MAX_CONCURRENT_JOBS: Maximum concurrent jobs processing (semaphore permits) (default: 5)
     /// - NUM_WORKERS: Number of worker loops acquiring jobs (default: 3)
+    /// - LOG_DIR: Directory for log files with daily rotation (default: "logs")
     ///
     /// Note: Ensure MAX_DB_CONNECTIONS >= NUM_WORKERS + MAX_CONCURRENT_JOBS + API_BUFFER
     pub fn from_env() -> Result<Self, String> {
@@ -68,12 +73,17 @@ impl Config {
             .and_then(|s| s.parse().ok())
             .unwrap_or(3); // Default: 3 workers
 
+        // Parse LOG_DIR with default fallback
+        let log_dir = env::var("LOG_DIR")
+            .unwrap_or_else(|_| "logs".to_string()); // Default: logs directory
+
         Ok(Config {
             database_url,
             max_payload_size,
             max_db_connections,
             max_concurrent_jobs,
             num_workers,
+            log_dir,
         })
     }
 }
