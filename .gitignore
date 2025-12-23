@@ -3,3 +3,7 @@
 .idea/
 .env
 .claude
+
+# Log files
+logs/
+*.log
