@@ -15,7 +15,9 @@ use crate::api::{
 mod config;
 mod db;
 mod worker;
+mod shutdown;
 use crate::worker::JobWorker;
+use crate::shutdown::ShutdownCoordinator;
 
 /// Job Processor - A high-performance REST API for managing jobs
 #[derive(Parser)]
@@ -167,26 +169,36 @@ async fn main() -> std::io::Result<()> {
 
     info!("Database migrations completed successfully");
 
+    // Create shutdown channel for graceful shutdown
+    // watch channel allows multiple receivers to get the same value
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
     // Spawn background workers with semaphore-based bounded concurrency
     let semaphore = Arc::new(Semaphore::new(max_concurrent_jobs));
+    let mut worker_handles = Vec::new();
 
     for worker_id in 1..=num_workers {
         let worker_pool = pool.clone();
         let worker_semaphore = semaphore.clone();
+        let worker_shutdown_rx = shutdown_rx.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let job_worker = JobWorker::new(worker_pool);
-            job_worker.run(worker_id, worker_semaphore).await;
+            job_worker.run(worker_id, worker_semaphore, worker_shutdown_rx).await;
         });
 
+        worker_handles.push(handle);
         info!("Spawned worker {}", worker_id);
     }
+
+    // Clone pool for HTTP server (original will be used for shutdown)
+    let server_pool = pool.clone();
 
     let server = HttpServer::new(move || {
         let my_state = web::Data::new(AppState::new("my_app"));
 
         // Create JobService with database pool
-        let job_service = web::Data::new(JobService::new(pool.clone()));
+        let job_service = web::Data::new(JobService::new(server_pool.clone()));
 
         // Configure payload size limits globally
         let payload_config = web::PayloadConfig::default()
@@ -196,7 +208,7 @@ async fn main() -> std::io::Result<()> {
             .total_limit(max_payload_size);
 
         App::new()
-            .app_data(web::Data::new(pool.clone())) // Share DB pool across workers
+            .app_data(web::Data::new(server_pool.clone())) // Share DB pool across workers
             .app_data(job_service) // Inject JobService
             .app_data(my_state)
             .app_data(payload_config) // Global payload size limit
@@ -221,11 +233,25 @@ async fn main() -> std::io::Result<()> {
 
     info!("Server starting on http://127.0.0.1:8080");
 
-    server
+    // Bind and start the server
+    let server = server
         .bind(("127.0.0.1", 8080))?
-        .run()
-        .await?;
+        .run();
 
-    info!("Server stopped");
-    Ok(())
+    // Get server handle for graceful shutdown
+    let server_handle = server.handle();
+
+    // Spawn server in background
+    let server_task = tokio::spawn(server);
+
+    // Create shutdown coordinator and wait for shutdown signal
+    let coordinator = ShutdownCoordinator::new(
+        server_handle,
+        server_task,
+        worker_handles,
+        shutdown_tx,
+        pool,
+    );
+
+    coordinator.wait_for_shutdown().await
 }

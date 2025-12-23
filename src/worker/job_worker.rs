@@ -1,9 +1,9 @@
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
-use tokio::sync::Semaphore;
+use tokio::sync::{Semaphore, watch};
 use rand::Rng;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::db::job_repository::JobRepository;
 
@@ -18,7 +18,7 @@ impl JobWorker {
         Self { pool }
     }
 
-    /// Run worker with semaphore-based bounded concurrency
+    /// Run worker with semaphore-based bounded concurrency and graceful shutdown
     ///
     /// # Architecture
     /// - Continuously fetches available jobs using acquire_next_job
@@ -28,20 +28,32 @@ impl JobWorker {
     /// - Randomly determines success/failure (75-80% success rate)
     /// - Updates job status accordingly
     /// - Sleeps when no jobs are available
+    /// - Exits gracefully when shutdown signal is received
     ///
     /// # Arguments
     /// - `worker_id` - Identifier for this worker instance
     /// - `semaphore` - Semaphore to control bounded concurrency
+    /// - `shutdown_rx` - Receiver for shutdown signal
     ///
     /// # Concurrency Model
     /// - Worker acquires jobs from queue (fast, non-blocking)
     /// - Before spawning processing task, acquires semaphore permit
     /// - Multiple jobs can process in parallel, bounded by semaphore permits
     /// - Permit is released when job processing completes
-    pub async fn run(&self, worker_id: u32, semaphore: Arc<Semaphore>) {
+    ///
+    /// # Graceful Shutdown
+    /// - Worker stops acquiring new jobs when shutdown signal is received
+    /// - Currently processing jobs complete normally
+    /// - Worker exits cleanly after shutdown
+    pub async fn run(&self, worker_id: u32, semaphore: Arc<Semaphore>, shutdown_rx: watch::Receiver<bool>) {
         info!("Worker {} started with semaphore-based concurrency", worker_id);
 
         loop {
+            // Check for shutdown signal
+            if *shutdown_rx.borrow() {
+                warn!("Worker {} received shutdown signal, stopping...", worker_id);
+                break;
+            }
             match JobRepository::acquire_next_job(&self.pool).await {
                 Ok(Some(job)) => {
                     info!("Worker {} acquired job: id={}, name={}", worker_id, job.id, job.name);
@@ -94,5 +106,7 @@ impl JobWorker {
                 }
             }
         }
+
+        info!("Worker {} stopped gracefully", worker_id);
     }
 }
