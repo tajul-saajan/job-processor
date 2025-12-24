@@ -11,6 +11,7 @@ use crate::api::{
     job::{handlers::job_config, JobService},
     state::{AppState, state_config},
     validation,
+    health::health_config,
 };
 mod config;
 mod db;
@@ -214,6 +215,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(payload_config) // Global payload size limit
             .app_data(multipart_config) // Global multipart/file upload size limit
             .app_data(validation::json_config()) // Global validation config
+            .configure(health_config) // Health check endpoints
             .configure(config)
             .configure(state_config)
             .configure(dummy_config)
