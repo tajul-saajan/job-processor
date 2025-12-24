@@ -504,7 +504,6 @@ Upload jobs from JSON file (multipart/form-data)
 This project is a learning exercise. Production-ready enhancements would include:
 
 ### Reliability
-- Graceful shutdown (drain in-flight jobs)
 - Retry policies with exponential backoff
 - Dead letter queue for failed jobs
 - Job timeouts and cancellation
