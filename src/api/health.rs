@@ -1,7 +1,7 @@
 use actix_web::{HttpResponse, Responder, get, web};
 use serde::Serialize;
 use sqlx::{Pool, Postgres};
-use tracing::{error, debug};
+use tracing::{error};
 
 /// Health check response
 #[derive(Serialize)]

@@ -6,7 +6,6 @@ use validator::Validate;
 
 use crate::api::validation::ErrorResponse;
 use crate::db::job_repository::JobRepository;
-use crate::db::models::JobRow;
 use super::dto::{BulkJobResponse, JobError, JobResponse};
 use super::models::Job;
 

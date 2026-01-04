@@ -1,6 +1,5 @@
 use actix_web::{App, HttpResponse, HttpServer, Responder, guard, web};
 use actix_multipart::form::MultipartFormConfig;
-use clap::{Parser, Subcommand};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tracing::info;
@@ -20,33 +19,7 @@ mod shutdown;
 use crate::worker::JobWorker;
 use crate::shutdown::ShutdownCoordinator;
 
-/// Job Processor - A high-performance REST API for managing jobs
-#[derive(Parser)]
-#[command(name = "job-processor")]
-#[command(about = "Job processor with database migration management", long_about = None)]
-struct Cli {
-    #[command(subcommand)]
-    command: Option<Commands>,
-}
 
-#[derive(Subcommand)]
-enum Commands {
-    /// Run database migrations
-    Migrate,
-
-    /// Rollback database migrations
-    Rollback {
-        /// Number of migrations to rollback (default: 1)
-        #[arg(short, long, default_value_t = 1)]
-        steps: i64,
-    },
-
-    /// Rollback all migrations to fresh state
-    Fresh,
-
-    /// Refresh database (rollback all + re-migrate)
-    Refresh,
-}
 
 fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(web::resource("/test").route(web::route().to(test)));
@@ -58,8 +31,6 @@ async fn test() -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Parse CLI arguments first (before logging, so we can see help/version)
-    let cli = Cli::parse();
 
     // Load configuration from environment
     let config::Config {
@@ -108,9 +79,15 @@ async fn main() -> std::io::Result<()> {
         .with_ansi(false)
         .with_filter(LevelFilter::DEBUG);
 
-    // Initialize the subscriber with all layers
+    // Create console/stdout layer for terminal output
+    let console_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stdout)
+        .with_ansi(true);
+
+    // Initialize the subscriber with all layers (including console)
     tracing_subscriber::registry()
         .with(env_filter)
+        .with(console_layer) // Add console output
         .with(info_layer)
         .with(warn_layer)
         .with(error_layer)
@@ -120,40 +97,6 @@ async fn main() -> std::io::Result<()> {
     // Get database connection pool
     let pool = db::connection::get_connection(&database_url, max_db_connections).await
         .expect("Failed to connect to database");
-
-    // Handle migration commands if provided
-    if let Some(command) = cli.command {
-        match command {
-            Commands::Migrate => {
-                info!("Running migrations command...");
-                db::migrations::run_migrations(&pool).await
-                    .expect("Failed to run migrations");
-                info!("Migrations completed. Exiting.");
-                return Ok(());
-            }
-            Commands::Rollback { steps } => {
-                info!("Running rollback command with {} step(s)...", steps);
-                db::migrations::rollback_migrations(&pool, steps).await
-                    .expect("Failed to rollback migrations");
-                info!("Rollback completed. Exiting.");
-                return Ok(());
-            }
-            Commands::Fresh => {
-                info!("Running fresh command (rollback all)...");
-                db::migrations::rollback_all_migrations(&pool).await
-                    .expect("Failed to rollback all migrations");
-                info!("Fresh completed. Exiting.");
-                return Ok(());
-            }
-            Commands::Refresh => {
-                info!("Running refresh command (rollback all + re-migrate)...");
-                db::migrations::refresh_database(&pool).await
-                    .expect("Failed to refresh database");
-                info!("Refresh completed. Exiting.");
-                return Ok(());
-            }
-        }
-    }
 
     // No command provided - start the server
     info!("Starting job-processor application");
@@ -169,6 +112,8 @@ async fn main() -> std::io::Result<()> {
         .expect("Failed to run database migrations");
 
     info!("Database migrations completed successfully");
+
+    db::cli::run(pool.clone()).await.expect("db cli failed");
 
     // Create shutdown channel for graceful shutdown
     // watch channel allows multiple receivers to get the same value
