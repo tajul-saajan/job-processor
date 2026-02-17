@@ -75,7 +75,7 @@ impl Config {
 
         // Parse LOG_DIR with default fallback
         let log_dir = env::var("LOG_DIR")
-            .unwrap_or_else(|_| "logs".to_string()); // Default: logs directory
+            .unwrap_or("logs".to_string()); // Default: logs directory
 
         Ok(Config {
             database_url,

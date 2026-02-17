@@ -1,25 +1,25 @@
-use actix_web::{App, HttpResponse, HttpServer, Responder, guard, web};
 use actix_multipart::form::MultipartFormConfig;
+use actix_web::{guard, web, App, HttpResponse, HttpServer, Responder};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tracing::info;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer, filter::LevelFilter};
+use tracing_subscriber::{
+    filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt, Layer,
+};
 mod api;
 use crate::api::{
     dummy::dummy_config,
-    job::{handlers::job_config, JobService},
-    state::{AppState, state_config},
-    validation,
     health::health_config,
+    job::{handlers::job_config, JobService},
+    state::{state_config, AppState},
+    validation,
 };
 mod config;
 mod db;
-mod worker;
 mod shutdown;
-use crate::worker::JobWorker;
+mod worker;
 use crate::shutdown::ShutdownCoordinator;
-
-
+use crate::worker::JobWorker;
 
 fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(web::resource("/test").route(web::route().to(test)));
@@ -31,7 +31,6 @@ async fn test() -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-
     // Load configuration from environment
     let config::Config {
         database_url,
@@ -40,17 +39,14 @@ async fn main() -> std::io::Result<()> {
         max_concurrent_jobs,
         num_workers,
         log_dir,
-    } = config::Config::from_env()
-        .expect("Failed to load configuration");
+    } = config::Config::from_env().expect("Failed to load configuration");
 
     // Create logs directory if it doesn't exist
-    std::fs::create_dir_all(&log_dir)
-        .expect("Failed to create logs directory");
+    std::fs::create_dir_all(&log_dir).expect("Failed to create logs directory");
 
     // Initialize file-based logging with daily rotation and level separation
     // Log files will be created as: logs/info.2024-12-22.log, logs/error.2024-12-22.log, etc.
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "info".into());
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or("info".into());
 
     // Create daily rotating file appenders for each log level
     let info_file = tracing_appender::rolling::daily(&log_dir, "info.log");
@@ -95,7 +91,8 @@ async fn main() -> std::io::Result<()> {
         .init();
 
     // Get database connection pool
-    let pool = db::connection::get_connection(&database_url, max_db_connections).await
+    let pool = db::connection::get_connection(&database_url, max_db_connections)
+        .await
         .expect("Failed to connect to database");
 
     // No command provided - start the server
@@ -108,7 +105,8 @@ async fn main() -> std::io::Result<()> {
     info!("Database connection pool established");
 
     // Run migrations on startup (auto-migrate when starting server)
-    db::migrations::run_migrations(&pool).await
+    db::migrations::run_migrations(&pool)
+        .await
         .expect("Failed to run database migrations");
 
     info!("Database migrations completed successfully");
@@ -130,7 +128,9 @@ async fn main() -> std::io::Result<()> {
 
         let handle = tokio::spawn(async move {
             let job_worker = JobWorker::new(worker_pool);
-            job_worker.run(worker_id, worker_semaphore, worker_shutdown_rx).await;
+            job_worker
+                .run(worker_id, worker_semaphore, worker_shutdown_rx)
+                .await;
         });
 
         worker_handles.push(handle);
@@ -147,11 +147,9 @@ async fn main() -> std::io::Result<()> {
         let job_service = web::Data::new(JobService::new(server_pool.clone()));
 
         // Configure payload size limits globally
-        let payload_config = web::PayloadConfig::default()
-            .limit(max_payload_size);
+        let payload_config = web::PayloadConfig::default().limit(max_payload_size);
 
-        let multipart_config = MultipartFormConfig::default()
-            .total_limit(max_payload_size);
+        let multipart_config = MultipartFormConfig::default().total_limit(max_payload_size);
 
         App::new()
             .app_data(web::Data::new(server_pool.clone())) // Share DB pool across workers
@@ -181,9 +179,7 @@ async fn main() -> std::io::Result<()> {
     info!("Server starting on http://127.0.0.1:8080");
 
     // Bind and start the server
-    let server = server
-        .bind(("127.0.0.1", 8080))?
-        .run();
+    let server = server.bind(("127.0.0.1", 8080))?.run();
 
     // Get server handle for graceful shutdown
     let server_handle = server.handle();
